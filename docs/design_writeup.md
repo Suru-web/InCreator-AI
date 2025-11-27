@@ -3,18 +3,6 @@
 
 _InCreator AI — Founding Engineer Assignment_
 
-
-## Overview
-This document describes a scalable, multi-platform influencer discovery system designed to support 250M+ creator profiles across Instagram, TikTok, YouTube, and X. The architecture emphasizes:
-
-
-- Continuous ingestion and normalization of platform data
-- Enrichment with embeddings, niche classification, and engagement quality analysis
-- High-speed search, filtering, ranking, and creator similarity queries
-- Cost-efficient embedding and refresh strategies
-- Horizontal scaling across ingestion, indexing, storage, and vector similarity layers
-
-
 Focus: architectural depth, performance and cost trade-offs, and AI-first extensibility (not UI/front-end concerns).
 
 
@@ -35,6 +23,16 @@ Focus: architectural depth, performance and cost trade-offs, and AI-first extens
 
 
 ---
+
+## Overview
+This document describes a scalable, multi-platform influencer discovery system designed to support 250M+ creator profiles across Instagram, TikTok, YouTube, and X. The architecture emphasizes:
+
+
+- Continuous ingestion and normalization of platform data
+- Enrichment with embeddings, niche classification, and engagement quality analysis
+- High-speed search, filtering, ranking, and creator similarity queries
+- Cost-efficient embedding and refresh strategies
+- Horizontal scaling across ingestion, indexing, storage, and vector similarity layers
 
 
 ## Assumptions & Constraints
