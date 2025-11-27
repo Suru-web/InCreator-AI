@@ -1,173 +1,247 @@
-Design Write-Up — Scalable Influencer Discovery System (250M+ Creators)
 
-InCreator AI — Founding Engineer Assignment
+# Scalable Influencer Discovery System — Design Write-Up
 
-1. Introduction
-This document details the architecture of a multi-platform influencer discovery system designed to scale to over 250 million creator profiles across Instagram, TikTok, YouTube, and X. The system is built to:
-
-	•	Continuously ingest and normalize creator data from diverse platforms.
-	•	Enrich profiles with embeddings, niche classification, and engagement/bot analysis.
-	•	Deliver high-speed search, filtering, ranking, and similarity queries at large scale.
-	•	Maintain cost efficiency while supporting dynamic refresh cycles.
-	•	Scale horizontally across ingestion, indexing, storage, and vector similarity layers.
-
-The focus is on architectural depth, performance, trade-offs, and AI-first extensibility, rather than UI or frontend concerns.
+_InCreator AI — Founding Engineer Assignment_
 
 
-2. Assumptions & Constraints
-Assumptions
-	•	Platform access differs: Instagram needs 3rd-party APIs; TikTok blends official APIs and scraping; X and YouTube have accessible APIs.
-	•	Creator data is highly dynamic with frequent updates.
-	•	High-value creators refresh more frequently.
-	•	The initial scope is search and discovery, not campaign management.
-
-Constraints
-	•	Platform rate limits and API quotas.
-	•	Must support backfills, retries, and partial failure recovery.
-	•	Search latency target: <500ms at scale.
-	•	Enrichment and embeddings must be cost-efficient.
+## Overview
+This document describes a scalable, multi-platform influencer discovery system designed to support 250M+ creator profiles across Instagram, TikTok, YouTube, and X. The architecture emphasizes:
 
 
-3. System Architecture Overview
-End-to-End Pipeline:
-Data Sources → Ingestion → Storage → Normalization →
-Identity Resolution → AI Enrichment → Vector DB →
-Search / Ranking → API Layer
-
-Core Infrastructure:
-	•	S3 for raw data lake and archival storage.
-	•	SQS/Kinesis for ingestion buffering and rate control.
-	•	Lambda/ECS for scalable ingestion workers.
-	•	Aurora (Postgres) for relational creator profiles.
-	•	DynamoDB for fast-changing metrics and aggregates.
-	•	Pinecone/OpenSearch for vector-based semantic search.
-	•	FastAPI for serving queries.
-
-Each layer scales independently with clear interface contracts.
+- Continuous ingestion and normalization of platform data
+- Enrichment with embeddings, niche classification, and engagement quality analysis
+- High-speed search, filtering, ranking, and creator similarity queries
+- Cost-efficient embedding and refresh strategies
+- Horizontal scaling across ingestion, indexing, storage, and vector similarity layers
 
 
-4. Data Model & Partitioning
-Primary Stores
-	•	Raw Data (S3): Immutable, versioned platform responses.
-	•	Aurora/Postgres: Unified creator profiles with metadata, niche tags, and platform links.
-	•	DynamoDB: High-write metrics like followers, likes, and engagement rates with TTLs.
-	•	Vector Store (Pinecone/OpenSearch): Embeddings for similarity and semantic queries.
-
-Partitioning
-	•	Partition by platform → Shard by creator_id hash.
-	•	S3 path: s3://creator-raw/{platform}/YYYY/MM/DD/
-	•	DynamoDB keys: pk = creator_id, sk = metric_type
-	•	Vector DB collections grouped by domain (short-form, long-form).
+Focus: architectural depth, performance and cost trade-offs, and AI-first extensibility (not UI/front-end concerns).
 
 
-5. Ingestion Strategy, Cadence & Scaling
-Scheduling
-	•	Airflow DAG orchestrates multi-platform ingestion.
-	•	Hourly/daily batches based on creator priority.
-	•	Handles retries, backoff, and dependency ordering.
-
-Rate Limit Management
-	•	Fetches via SQS/Kinesis with token-based throttling.
-	•	Workers respect platform-specific rate tokens.
-
-Backfills
-	•	Separate DAGs for historical data.
-	•	Slower throttled ingestion to avoid API issues.
-	•	All raw backfill data lands in S3 first.
-
-Scaling
-	•	ECS Fargate for horizontal scalability.
-	•	Queue depth drives auto-scaling.
-	•	GPU-enabled batch jobs for embeddings.
+## Table of Contents
+- [Overview](#overview)
+- [Assumptions & Constraints](#assumptions--constraints)
+- [System Architecture Overview](#system-architecture-overview)
+- [Data Model & Partitioning](#data-model--partitioning)
+- [Ingestion Strategy, Cadence & Scaling](#ingestion-strategy-cadence--scaling)
+- [Identity Resolution Across Platforms](#identity-resolution-across-platforms)
+- [AI Integration & Enrichment Pipeline](#ai-integration--enrichment-pipeline)
+- [Retrieval & Ranking Flow](#retrieval--ranking-flow)
+- [Monitoring, Observability & Cost](#monitoring-observability--cost)
+- [Security & Multi-Tenancy](#security--multi-tenancy)
+- [Trade-Offs & Scaling Roadmap](#trade-offs--scaling-roadmap)
+- [Conclusion](#conclusion)
+- [Appendix & Decision Notes](#appendix--decision-notes)
 
 
-6. Identity Resolution Across Platforms
-Challenge: Mapping creators across TikTok, Instagram, and YouTube.
-
-Signals for Matching:
-	•	Username similarity (Levenshtein, Jaro-Winkler)
-	•	Bio embeddings comparison (cosine similarity)
-	•	Email/website matches
-	•	Cross-linked socials in profiles
-
-Flow:
-	1.	Generate candidate matches.
-	2.	Score with weighted hybrid model.
-	3.	Merge if above threshold.
-	4.	Assign unified creator_id.
-
-Runs asynchronously to keep ingestion fast.
+---
 
 
-7. AI Integration & Enrichment Pipeline
-Embedding Generation:
-	•	Bio, content-topic, and niche embeddings via OpenAI/SBERT/Cohere.
-
-LLM Classification:
-	•	Zero-shot niche and content type categorization.
-	•	Risk tagging (controversial/NSFW).
-
-Engagement Quality Model:
-	•	Calculated engagement rates.
-	•	Anomaly detection for bots, fake followers, or inorganic spikes.
-
-Vector Search:
-	•	Embeddings stored in vector DB.
-	•	Enables semantic queries and “find similar creators.”
+## Assumptions & Constraints
 
 
-8. Retrieval & Ranking Flow
-Two-Stage Query:
-	1.	Structured Filtering (Aurora/DynamoDB)
-	◦	Follower count, platform, niche, engagement, location.
-	2.	Re-Ranking (ML + Embeddings)
-	◦	Weighted final score combining engagement, follower size, quality, and vector similarity.
-
-Latency Goal: P90 < 500ms with caching and precomputed embeddings.
+### Assumptions
+- Platform access varies by provider: Instagram often requires 3rd-party APIs; TikTok combines official APIs with occasional scraping; X and YouTube have more direct APIs.
+- Creator profiles are highly dynamic — frequent metric updates, content changes, and metadata drift.
+- High-value creators receive more frequent refreshes than low-priority creators.
+- MVP scope centers on search and discovery (not campaign execution or advanced campaign analytics).
 
 
-9. Monitoring, Observability & Cost
-Monitoring:
-	•	Airflow DAG health, SQS queue depth, ECS/Lambda utilization.
-	•	Data quality: missing fields, outliers, failed identity resolutions, embedding drift.
-
-Cost Drivers:
-	•	Embedding generation
-	•	Vector storage
-	•	Large ingestion bursts
-
-Optimization:
-	•	Batch embeddings
-	•	Dynamic refresh cycles
-	•	DynamoDB TTLs
-	•	S3 → Glacier lifecycle policies
+### Constraints
+- Platform API rate limits and quota constraints.
+- The system must support backfills, retries, and graceful partial-failure recovery.
+- Search latency target: P90 < 500ms at scale.
+- Embedding generation and enrichment must be cost-efficient (batching, batching, and caching).
 
 
-10. Security & Multi-Tenancy
-	•	API Security: API Gateway + JWT-based auth.
-	•	Data Isolation: Enterprise partitions, query quotas, access logs.
-	•	PII Handling: Hash emails, restrict sensitive exposure.
+## System Architecture Overview
 
 
-11. Trade-Offs & Scaling Roadmap
-MVP Ships:
-	•	Multi-platform ingestion
-	•	Basic normalization
-	•	Embeddings + classification
-	•	Search & ranking API
-
-Future Enhancements:
-	•	Bot detection ML
-	•	Personalized ranking
-	•	Real-time ingestion
-	•	Advanced analytics
-
-12-Month Plan:
-	•	Q1: Full index, stable ingestion, basic semantic search
-	•	Q2: ML identity resolution, engagement anomaly detection
-	•	Q3: Enterprise controls, auto-prioritized refresh
-	•	Q4: Real-time scoring, deep content similarity, geo insights
+### End-to-end pipeline
+```
+Data Sources -> Ingestion -> Storage -> Normalization -> Identity Resolution -> AI Enrichment -> Vector DB -> Search/Ranking -> API Layer
+```
 
 
-12. Conclusion
-This architecture balances scalability, cost, and AI-powered discovery. Clean separation of ingestion, normalization, enrichment, vector search, and API layers ensures independent scaling and long-term flexibility for InCreator AI’s roadmap.
+### Core infrastructure
+- `S3` — raw data lake and archival storage
+- `SQS`/`Kinesis` — ingestion buffering and rate control
+- `Lambda` / `ECS` — scalable ingestion workers and rate-limited fetchers
+- `Aurora (Postgres)` — canonical relational creator profiles and metadata
+- `DynamoDB` — high-write metrics and fast-changing aggregates
+- `Pinecone` / `OpenSearch` (or other vector stores) — embeddings & semantic search
+- `FastAPI` — serving query APIs and business logic
+
+
+Each layer scales independently and communicates via well-defined interfaces (events, queues, APIs).
+
+
+## Data Model & Partitioning
+
+
+### Primary stores
+| Store | Purpose |
+|---|---|
+| S3 (raw) | Immutable, versioned platform responses; source-of-truth for replays/backfills |
+| Aurora (Postgres) | Canonical creator profiles, normalized metadata, niche tags, links |
+| DynamoDB | High-frequency writes for time-series-like metrics & aggregates (followers, likes) |
+| Vector DB (Pinecone/OpenSearch) | Embeddings for semantic searches and similarity queries |
+
+
+### Partitioning & keys
+- Partition by platform and shard by `creator_id` hash for horizontal scale.
+- S3 paths: `s3://creator-raw/{platform}/YYYY/MM/DD/`
+- DynamoDB keys: partition key `pk = creator_id`, sort key `sk = metric_type`
+- Vector DB: collections/indices grouped by domain (e.g., short-form, long-form) for cost/latency optimizations
+
+
+## Ingestion Strategy, Cadence & Scaling
+
+
+### Scheduling & Orchestration
+- `Airflow` DAGs orchestrate multi-platform ingestion and enrichment pipelines.
+- Jobs run on hourly/daily cycles depending on creator priority (high-value = higher cadence).
+- DAGs support retries/backoff and dependency ordering (fetch -> normalize -> persist -> enrich).
+
+
+### Rate-limit Management
+- Use `SQS`/`Kinesis` as a buffer and token-based throttling to respect platform quotas.
+- Worker pools (Lambda/ECS) take tokens from the queue and execute platform-specific fetchers.
+
+
+### Backfills
+- Define dedicated DAGs for historical backfills with slower throttle rates to avoid API penalties.
+- All raw backfill data consistently lands in S3, then follows the normalization/enrichment flow.
+
+
+### Scaling
+- Horizontal scaling via ECS Fargate or Lambda for bursts; auto-scale based on queue depth.
+- GPU-enabled batch jobs (ECS/Batch) perform batched embedding generation when required.
+
+
+## Identity Resolution Across Platforms
+
+
+### Problem
+Mapping multiple platform profiles (Instagram, TikTok, X, YouTube) to a unified creator entity.
+
+
+### Matching signals
+- Username similarity (Levenshtein, Jaro–Winkler)
+- Bio and title embedding similarity (cosine similarity)
+- Website/email matches extracted from metadata
+- Cross-linked social handles and links
+
+
+### Flow (asynchronous)
+1. Generate candidate matches using lightweight heuristics (username, handle, external links).
+2. Score candidates with a hybrid model that combines lexical and embedding signals.
+3. Merge profiles if the score exceeds a threshold; otherwise, flag for manual or ML review.
+4. Assign a unified `creator_id` and update canonical profile in Aurora.
+
+
+This process runs asynchronously so ingestion remains fast and non-blocking.
+
+
+## AI Integration & Enrichment Pipeline
+
+
+### Embedding generation
+- Create embeddings for bios, content topics, niche categories using models such as OpenAI, SBERT, or Cohere.
+- Batch embeddings to reduce per-API cost and achieve better throughput.
+
+
+### LLM Classification
+- Zero-shot or prompt-based approaches for niche classification and content-type tags.
+- Risk classification (NSFW/controversial) for content moderation and compliance.
+
+
+### Engagement & Quality scoring
+- Compute engagement rates, follower growth trends, and other health signals.
+- Anomaly detection pipeline flags bots, fake followers, or inorganic spikes.
+
+
+### Vector Search
+- Store embeddings in the vector DB and back them with structured profile data.
+- Enable similarity queries like “find creators similar to X” and semantic queries over bios/content.
+
+
+## Retrieval & Ranking Flow
+
+
+### Two-stage query architecture
+1. Structured filtering (Aurora/DynamoDB)
+   - Fast key lookups and filters on followers, platform, niche, engagement, or location.
+2. Re-ranking (ML + embeddings)
+   - Combine a weighted final score from engagement quality, follower size, and vector similarity.
+
+
+Latency Target: P90 < 500ms achieved via caching, precomputed embeddings, and efficient primary index lookups.
+
+
+## Monitoring, Observability & Cost
+
+
+### Monitoring
+- Airflow DAG health & task success/failures
+- Queue depth/latency in `SQS`/`Kinesis`
+- ECS/Lambda utilization & autoscaling performance
+- Data quality metrics: missing fields, outliers, identity resolution failures, embedding distribution drift
+
+
+### Cost drivers
+- Embedding generation (API costs for models)
+- Vector database storage and query volume
+- Large ingestion bursts and storage transfer
+
+
+### Optimization strategies
+- Batch embeddings and compress payloads.
+- Dynamic refresh cycles based on creator priority & last-update recency.
+- DynamoDB TTLs for short-lived metrics and S3 Lifecycle to archive to Glacier.
+
+
+## Security & Multi-Tenancy
+
+
+- API security: API Gateway + JWT-based auth and scoped tokens per tenant.
+- Data isolation: enterprise partitions, role-based access control, query quotas and per-tenant metering.
+- PII handling: truncate/salt/hash emails, restrict sensitive exposure to authorized roles.
+
+
+## Trade-Offs & Scaling Roadmap
+
+
+### MVP scope
+- Multi-platform ingestion
+- Basic normalization
+- Embeddings + classification
+- Search & ranking API
+
+
+### Future enhancements
+- Bot/fake-follower detection ML models
+- Per-user and per-enterprise personalized ranking
+- Real-time ingestion (near-real-time streaming)
+- Advanced analytics and geo insights
+
+
+### 12-month plan
+- **Q1**: Full profile index, stable ingestion, basic semantic search
+- **Q2**: ML-enhanced identity resolution, engagement anomaly detection
+- **Q3**: Enterprise controls & auto prioritised refresh
+- **Q4**: Real-time scoring, deeper content similarity and geo insights
+
+
+## Conclusion
+This architecture balances scalability, cost, and AI-powered discovery. A clean separation of ingestion, normalization, enrichment, vector search, and API layers enables independent scaling, easier evolution of components, and long-term flexibility for InCreator AI.
+
+
+## Appendix & Decision Notes
+- Key design decisions and trade-offs are documented inline: embedding selection, vector DB choice vs. open-source alternatives, and cost/latency trade-offs of real-time vs. batch indexing.
+- For small teams, begin with managed vector stores (Pinecone, etc.) and later consider self-hosted OpenSearch/FAISS variants for cost optimization.
+
+
+---
+
+_Document last updated: Nov 27, 2025_

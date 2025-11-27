@@ -34,22 +34,16 @@ This repo contains:
 increator-assignment/
 │
 ├── architecture/
-│   ├── architecture_diagram.png
-│   ├── architecture_diagram.pdf
-│   └── architecture_notes.md
+│   └── architecture_diagram.png
 │
 ├── docs/
 │   ├── design_writeup.md
-│   ├── scaling_tradeoffs.md
-│   └── assumptions.md
+│   └── scaling_tradeoffs.md
 │
 ├── technical-artifacts/
 │   ├── airflow_dag.py
 │   ├── db_schema.sql
 │   └── cost_model.md
-│
-├── assets/
-│   └── (icons, exports, reference materials)
 │
 └── README.md
 ```
@@ -74,7 +68,6 @@ A modern, clean diagram illustrating:
 
 📄 Files:
 `architecture/architecture_diagram.png`
-`architecture/architecture_diagram.pdf`
 
 ---
 
